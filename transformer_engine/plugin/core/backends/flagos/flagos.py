@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 
-from ...ops import TEFLBackendBase, FP8TensorMeta, NVTE_Fused_Attn_Backend
+from ...ops import *
 
 from .impl import (
     rmsnorm_fwd_fl,
@@ -28,10 +28,8 @@ from .impl import (
     moe_permute_bwd_fl,
 )
 
-
 def _check_flagos_available() -> bool:
     return True
-
 
 class FlagOSBackend(TEFLBackendBase):
     @staticmethod
@@ -41,15 +39,9 @@ class FlagOSBackend(TEFLBackendBase):
     def is_available(self) -> bool:
         return _check_flagos_available()
 
-    def get_flash_attention_class(self):
-        from .attention.dot_product_attention.backends import FlashAttentionFL
-
-        return FlashAttentionFL
-
     def get_attention_backend(self, attention_params=None):
         from packaging.version import Version as PkgVersion
         from ...logger_manager import get_logger
-
         logger = get_logger()
 
         # Read environment variables to determine which backends to enable
@@ -79,17 +71,18 @@ class FlagOSBackend(TEFLBackendBase):
             available_backends,
         )
 
+##### transformer_engine/pytorch/csrc/extensions/pybind.cpp #####
     def generic_gemm(
         self,
-        A: torch.Tensor,
+        A: Any,
         transA: bool,
-        B: torch.Tensor,
+        B: Any,
         transB: bool,
-        D: torch.Tensor,
+        D: Any,
         quantizer: Any,
-        output_dtype: torch.dtype,
+        output_dtype: Optional[DType],
         bias: Optional[torch.Tensor],
-        bias_type: Any,
+        bias_type: DType,
         gelu: bool,
         gelu_in: Optional[torch.Tensor],
         grad: bool,
@@ -98,79 +91,53 @@ class FlagOSBackend(TEFLBackendBase):
         accumulate: bool,
         use_split_accumulator: bool,
         comm_overlap: Optional[Any] = None,
-        comm_type: Optional[Any] = None,
+        comm_type: Optional[CommOverlapType] = None,
         extra_output: Optional[torch.Tensor] = None,
         bulk_overlap: bool = False,
         alpha: float = 1.0,
         beta: Optional[float] = None,
-    ) -> Any:
+    ) -> List[Any]:
         return generic_gemm_fl(
-            A,
-            transA,
-            B,
-            transB,
-            D,
-            quantizer,
-            output_dtype,
-            bias,
-            bias_type,
-            gelu,
-            gelu_in,
-            grad,
-            workspace,
-            workspace_size,
-            accumulate,
-            use_split_accumulator,
-            comm_overlap=comm_overlap,
-            comm_type=comm_type,
-            extra_output=extra_output,
-            bulk_overlap=bulk_overlap,
-            alpha=alpha,
-            beta=beta,
+            A, transA, B, transB, D, quantizer, output_dtype,
+            bias, bias_type, gelu, gelu_in, grad, workspace, workspace_size,
+            accumulate, use_split_accumulator, comm_overlap, comm_type,
+            extra_output, bulk_overlap, alpha, beta
         )
 
+    # Other granular functions
     def rmsnorm_fwd(
         self,
-        input: torch.Tensor,
-        weight: torch.Tensor,
+        input: Any,
+        weight: Any,
         eps: float,
-        ln_out: Optional[torch.Tensor],
+        ln_out: Any,
         quantizer: Any,
-        otype: torch.dtype,
+        otype: DType,
         sm_margin: int,
         zero_centered_gamma: bool,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+    ) -> List[Any]:
         return rmsnorm_fwd_fl(
-            input=input,
-            weight=weight,
-            eps=eps,
-            ln_out=ln_out,
-            quantizer=quantizer,
-            odtype=otype,
-            sm_margin=sm_margin,
-            zero_centered_gamma=zero_centered_gamma,
+            input=input, weight=weight, eps=eps, ln_out=ln_out,
+            quantizer=quantizer, odtype=otype,
+            sm_margin=sm_margin, zero_centered_gamma=zero_centered_gamma,
         )
-
     def rmsnorm_bwd(
         self,
-        dy: torch.Tensor,
+        dz: torch.Tensor,
         x: torch.Tensor,
         rsigma: torch.Tensor,
         gamma: torch.Tensor,
-        sm_margin: int = 0,
-        zero_centered_gamma: bool = False,
-        eps: float = 1e-5,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        sm_margin: int,
+        zero_centered_gamma: bool,
+    ) -> List[Any]:
         return rmsnorm_bwd_fl(
-            dy=dy,
-            x=x,
-            rsigma=rsigma,
-            gamma=gamma,
-            sm_margin=sm_margin,
-            zero_centered_gamma=zero_centered_gamma,
-            eps=eps,
+            dy=dz, x=x, rsigma=rsigma, gamma=gamma,
+            sm_margin=sm_margin, zero_centered_gamma=zero_centered_gamma
         )
+    def get_fused_attn_backend(self, *args, **kwargs) -> int:
+        return NVTE_Fused_Attn_Backend.NVTE_No_Backend
 
+    # multi-tensor functions
     def multi_tensor_scale(
         self,
         chunk_size: int,
@@ -179,61 +146,64 @@ class FlagOSBackend(TEFLBackendBase):
         scale: float,
     ) -> None:
         return multi_tensor_scale_fl(chunk_size, noop_flag, tensor_lists, scale)
-
     def multi_tensor_l2norm(
         self,
         chunk_size: int,
         noop_flag: torch.Tensor,
         tensor_lists: List[List[torch.Tensor]],
-        per_tensor: bool = False,
-    ) -> Union[torch.Tensor, List[torch.Tensor]]:
-        result, _ = multi_tensor_l2_norm_fl(chunk_size, noop_flag, tensor_lists, per_tensor)
-        return result
-
+        per_tensor: Optional[bool] = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return multi_tensor_l2_norm_fl(chunk_size, noop_flag, tensor_lists, per_tensor)
     def multi_tensor_adam(
         self,
-        chunk_size: int = None,
-        noop_flag: torch.Tensor = None,
-        tensor_lists: List[List[torch.Tensor]] = None,
-        lr: float = None,
-        beta1: float = None,
-        beta2: float = None,
-        eps: float = None,
-        step: int = None,
-        mode: int = None,
-        bias_correction: int = None,
-        weight_decay: float = None,
-    ):
-        if chunk_size is None:
-            return multi_tensor_adam_fl
+        chunk_size: int,
+        noop_flag: torch.Tensor,
+        tensor_lists: List[List[torch.Tensor]],
+        lr: float,
+        beta1: float,
+        beta2: float,
+        epsilon: float,
+        step: int,
+        mode: int,
+        bias_correction: int,
+        weight_decay: float,
+    ) -> None:
         return multi_tensor_adam_fl(
-            chunk_size=chunk_size,
-            noop_flag=noop_flag,
-            tensor_lists=tensor_lists,
-            lr=lr,
-            beta1=beta1,
-            beta2=beta2,
-            eps=eps,
-            step=step,
-            mode=mode,
-            bias_correction=bias_correction,
-            weight_decay=weight_decay,
+            chunk_size, noop_flag, tensor_lists, lr, beta1, beta2, epsilon,
+            step, mode, bias_correction, weight_decay,
+        )
+    def multi_tensor_adam_param_remainder(
+        self,
+        chunk_size: int,
+        noop_flag: torch.Tensor,
+        tensor_lists: List[List[torch.Tensor]],
+        lr: float,
+        beta1: float,
+        beta2: float,
+        epsilon: float,
+        step: int,
+        mode: int,
+        bias_correction: int,
+        weight_decay: float,
+    ) -> None:
+        return multi_tensor_adam_param_remainder_fl(
+            chunk_size, noop_flag, tensor_lists,
+            lr, beta1, beta2, epsilon,
+            step, mode, bias_correction, weight_decay,
         )
 
+    # Misc
     def get_cublasLt_version(self) -> int:
         return 110000
-
     def get_cudnn_version(self) -> int:
         return 90000
-
     def get_num_cublas_streams(self) -> int:
         return 0
 
-    def get_fused_attn_backend(self, *args, **kwargs) -> int:
-        return NVTE_Fused_Attn_Backend.NVTE_No_Backend
-
-    def create_fp8_tensor_meta(self) -> FP8TensorMeta:
-        return FP8TensorMeta()
+############## class func #################################
+    def get_flash_attention_class(self):
+        from .attention.dot_product_attention.backends import FlashAttentionFL
+        return FlashAttentionFL
 
     def gelu(self, input: torch.Tensor, quantizer: Any) -> Any:
         return gelu_fl(input, quantizer)
