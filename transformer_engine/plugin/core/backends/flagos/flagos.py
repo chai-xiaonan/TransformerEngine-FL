@@ -7,16 +7,25 @@ from typing import Any, List, Optional, Tuple, Union
 
 import torch
 
-from ...ops import *
+from ...ops import TEFLBackendBase, FP8TensorMeta, NVTE_Fused_Attn_Backend
 
 from .impl import (
     rmsnorm_fwd_fl,
     rmsnorm_bwd_fl,
     multi_tensor_scale_fl,
     multi_tensor_adam_fl,
-    multi_tensor_adam_param_remainder_fl,
     multi_tensor_l2_norm_fl,
     generic_gemm_fl,
+    gelu_fl,
+    geglu_fl,
+    qgelu_fl,
+    qgeglu_fl,
+    relu_fl,
+    reglu_fl,
+    moe_permute_fwd_fl,
+    moe_unpermute_bwd_fl,
+    moe_unpermute_fwd_fl,
+    moe_permute_bwd_fl,
 )
 
 
@@ -31,6 +40,11 @@ class FlagOSBackend(TEFLBackendBase):
 
     def is_available(self) -> bool:
         return _check_flagos_available()
+
+    def get_flash_attention_class(self):
+        from .attention.dot_product_attention.backends import FlashAttentionFL
+
+        return FlashAttentionFL
 
     def get_attention_backend(self, attention_params=None):
         from packaging.version import Version as PkgVersion
@@ -65,18 +79,17 @@ class FlagOSBackend(TEFLBackendBase):
             available_backends,
         )
 
-    ##### transformer_engine/pytorch/csrc/extensions/pybind.cpp #####
     def generic_gemm(
         self,
-        A: Any,
+        A: torch.Tensor,
         transA: bool,
-        B: Any,
+        B: torch.Tensor,
         transB: bool,
-        D: Any,
+        D: torch.Tensor,
         quantizer: Any,
-        output_dtype: Optional[DType],
+        output_dtype: torch.dtype,
         bias: Optional[torch.Tensor],
-        bias_type: DType,
+        bias_type: Any,
         gelu: bool,
         gelu_in: Optional[torch.Tensor],
         grad: bool,
@@ -85,12 +98,12 @@ class FlagOSBackend(TEFLBackendBase):
         accumulate: bool,
         use_split_accumulator: bool,
         comm_overlap: Optional[Any] = None,
-        comm_type: Optional[CommOverlapType] = None,
+        comm_type: Optional[Any] = None,
         extra_output: Optional[torch.Tensor] = None,
         bulk_overlap: bool = False,
         alpha: float = 1.0,
         beta: Optional[float] = None,
-    ) -> List[Any]:
+    ) -> Any:
         return generic_gemm_fl(
             A,
             transA,
@@ -108,26 +121,25 @@ class FlagOSBackend(TEFLBackendBase):
             workspace_size,
             accumulate,
             use_split_accumulator,
-            comm_overlap,
-            comm_type,
-            extra_output,
-            bulk_overlap,
-            alpha,
-            beta,
+            comm_overlap=comm_overlap,
+            comm_type=comm_type,
+            extra_output=extra_output,
+            bulk_overlap=bulk_overlap,
+            alpha=alpha,
+            beta=beta,
         )
 
-    # Other granular functions
     def rmsnorm_fwd(
         self,
-        input: Any,
-        weight: Any,
+        input: torch.Tensor,
+        weight: torch.Tensor,
         eps: float,
-        ln_out: Any,
+        ln_out: Optional[torch.Tensor],
         quantizer: Any,
-        otype: DType,
+        otype: torch.dtype,
         sm_margin: int,
         zero_centered_gamma: bool,
-    ) -> List[Any]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
         return rmsnorm_fwd_fl(
             input=input,
             weight=weight,
@@ -141,26 +153,24 @@ class FlagOSBackend(TEFLBackendBase):
 
     def rmsnorm_bwd(
         self,
-        dz: torch.Tensor,
+        dy: torch.Tensor,
         x: torch.Tensor,
         rsigma: torch.Tensor,
         gamma: torch.Tensor,
-        sm_margin: int,
-        zero_centered_gamma: bool,
-    ) -> List[Any]:
+        sm_margin: int = 0,
+        zero_centered_gamma: bool = False,
+        eps: float = 1e-5,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         return rmsnorm_bwd_fl(
-            dy=dz,
+            dy=dy,
             x=x,
             rsigma=rsigma,
             gamma=gamma,
             sm_margin=sm_margin,
             zero_centered_gamma=zero_centered_gamma,
+            eps=eps,
         )
 
-    def get_fused_attn_backend(self, *args, **kwargs) -> int:
-        return NVTE_Fused_Attn_Backend.NVTE_No_Backend
-
-    # multi-tensor functions
     def multi_tensor_scale(
         self,
         chunk_size: int,
@@ -175,67 +185,41 @@ class FlagOSBackend(TEFLBackendBase):
         chunk_size: int,
         noop_flag: torch.Tensor,
         tensor_lists: List[List[torch.Tensor]],
-        per_tensor: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return multi_tensor_l2_norm_fl(chunk_size, noop_flag, tensor_lists, per_tensor)
+        per_tensor: bool = False,
+    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+        result, _ = multi_tensor_l2_norm_fl(chunk_size, noop_flag, tensor_lists, per_tensor)
+        return result
 
     def multi_tensor_adam(
         self,
-        chunk_size: int,
-        noop_flag: torch.Tensor,
-        tensor_lists: List[List[torch.Tensor]],
-        lr: float,
-        beta1: float,
-        beta2: float,
-        epsilon: float,
-        step: int,
-        mode: int,
-        bias_correction: int,
-        weight_decay: float,
-    ) -> None:
+        chunk_size: int = None,
+        noop_flag: torch.Tensor = None,
+        tensor_lists: List[List[torch.Tensor]] = None,
+        lr: float = None,
+        beta1: float = None,
+        beta2: float = None,
+        eps: float = None,
+        step: int = None,
+        mode: int = None,
+        bias_correction: int = None,
+        weight_decay: float = None,
+    ):
+        if chunk_size is None:
+            return multi_tensor_adam_fl
         return multi_tensor_adam_fl(
-            chunk_size,
-            noop_flag,
-            tensor_lists,
-            lr,
-            beta1,
-            beta2,
-            epsilon,
-            step,
-            mode,
-            bias_correction,
-            weight_decay,
+            chunk_size=chunk_size,
+            noop_flag=noop_flag,
+            tensor_lists=tensor_lists,
+            lr=lr,
+            beta1=beta1,
+            beta2=beta2,
+            eps=eps,
+            step=step,
+            mode=mode,
+            bias_correction=bias_correction,
+            weight_decay=weight_decay,
         )
 
-    def multi_tensor_adam_param_remainder(
-        self,
-        chunk_size: int,
-        noop_flag: torch.Tensor,
-        tensor_lists: List[List[torch.Tensor]],
-        lr: float,
-        beta1: float,
-        beta2: float,
-        epsilon: float,
-        step: int,
-        mode: int,
-        bias_correction: int,
-        weight_decay: float,
-    ) -> None:
-        return multi_tensor_adam_param_remainder_fl(
-            chunk_size,
-            noop_flag,
-            tensor_lists,
-            lr,
-            beta1,
-            beta2,
-            epsilon,
-            step,
-            mode,
-            bias_correction,
-            weight_decay,
-        )
-
-    # Misc
     def get_cublasLt_version(self) -> int:
         return 110000
 
@@ -245,8 +229,38 @@ class FlagOSBackend(TEFLBackendBase):
     def get_num_cublas_streams(self) -> int:
         return 0
 
-    ############## class func #################################
-    def get_flash_attention_class(self):
-        from .attention.dot_product_attention.backends import FlashAttentionFL
+    def get_fused_attn_backend(self, *args, **kwargs) -> int:
+        return NVTE_Fused_Attn_Backend.NVTE_No_Backend
 
-        return FlashAttentionFL
+    def create_fp8_tensor_meta(self) -> FP8TensorMeta:
+        return FP8TensorMeta()
+
+    def gelu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return gelu_fl(input, quantizer)
+
+    def geglu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return geglu_fl(input, quantizer)
+
+    def qgelu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return qgelu_fl(input, quantizer)
+
+    def qgeglu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return qgeglu_fl(input, quantizer)
+
+    def relu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return relu_fl(input, quantizer)
+
+    def reglu(self, input: torch.Tensor, quantizer: Any) -> Any:
+        return reglu_fl(input, quantizer)
+
+    def moe_permute_fwd(self, *args, **kwargs) -> Any:
+        return moe_permute_fwd_fl(*args, **kwargs)
+
+    def moe_unpermute_bwd(self, *args, **kwargs) -> Any:
+        return moe_unpermute_bwd_fl(*args, **kwargs)
+
+    def moe_unpermute_fwd(self, *args, **kwargs) -> Any:
+        return moe_unpermute_fwd_fl(*args, **kwargs)
+
+    def moe_permute_bwd(self, *args, **kwargs) -> Any:
+        return moe_permute_bwd_fl(*args, **kwargs)
