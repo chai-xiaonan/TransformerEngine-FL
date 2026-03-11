@@ -86,3 +86,12 @@ def register_builtins(registry: OpRegistry) -> None:
     except Exception as e:
         # Iluvatar may not be available, this is expected
         pass
+
+    # Register MUSA (VENDOR) implementations
+    try:
+        from .backends.vendor.musa.register_ops import register_builtins as register_musa
+
+        register_musa(registry)
+    except Exception as e:
+        # MUSA may not be available, this is expected
+        pass
