@@ -118,6 +118,9 @@ def generic_gemm_fl(
         return out1, bias_grad, gelu_input, extra_output_ret
 
 
+# This function can represent both forward and backward computations.
+# When grad is False (forward computation), the 'bias' is bias;
+# When grad is True (backward computation/gradient calculation), the 'bias' is grad_bias;
 def te_general_grouped_gemm_fl(
     B: List[torch.Tensor],
     transb: bool,
