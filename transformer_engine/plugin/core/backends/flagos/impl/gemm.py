@@ -126,7 +126,7 @@ def te_general_grouped_gemm_fl(
     D: Optional[List[torch.Tensor]],
     D_type: Any,
     m_splits: List[int],
-    bias: List[torch.Tensor],
+    bias: List[torch.Tensor],  # bias or grad_bias
     bias_type: Any,
     single_output: bool,
     pre_gelu_out: List[torch.Tensor],
@@ -148,30 +148,25 @@ def te_general_grouped_gemm_fl(
             n = B[i].shape[0] if transb else B[i].shape[1]
             D.append(torch.empty((m, n), dtype=D[i].dtype, device=A[0].device))
 
-    def gelu_backward(grad_output, x):
-        # Approximation of GELU derivative commonly used in Transformer Engine
-        cdf = 0.5 * (1.0 + flag_gems.erf(x / flag_gems.sqrt(2.0)))
-        pdf = flag_gems.exp(-0.5 * x * x) / flag_gems.sqrt(2.0 * math.pi)
-        return flag_gems.mul(grad_output, (cdf + x * pdf))
-
     temp_D = []
     for i in range(num_gemms):
         # Handle the special case of zero-element inputs
         if A[i].numel() == 0 or B[i].numel() == 0:
             if not single_output:
                 if D[i].numel() != 0 and not accumulate:
-                    D[i].zero_()
+                    flag_gems.copy_(D[i], flag_gems.zeros(D[i].shape))
             else:
-                out = torch.zeros(A[i].shape[0], B[i].shape[1])
+                out = flag_gems.zeros((A[i].shape[0], B[i].shape[1]))
             if grad and len(bias) > i and bias[i] is not None and bias[i].numel() != 0:
-                bias[i].zero_()
+                flag_gems.copy_(bias[i], flag_gems.zeros(bias[i].shape))
             if (
                 len(pre_gelu_out) > i
                 and pre_gelu_out[i] is not None
                 and pre_gelu_out[i].numel() != 0
             ):
-                pre_gelu_out[i].zero_()
+                flag_gems.copy_(pre_gelu_out[i], flag_gems.zeros(pre_gelu_out[i].shape))
             continue
+
         a = A[i].t() if transa else A[i]
         b = B[i].t() if transb else B[i]
         # Determine presence of epilogue tensors
@@ -190,33 +185,35 @@ def te_general_grouped_gemm_fl(
 
             # Apply GELU epilogue if pre_gelu_out is provided
             if has_pre_gelu:
-                pre_gelu_out[i].copy_(out)
+                flag_gems.copy_(pre_gelu_out[i], out)
                 out = flag_gems.gelu(out)
         else:
             out = flag_gems.mm(a, b)
+
+            # Apply dGELU epilogue if requested
             if has_pre_gelu:
-                out = gelu_backward(out, pre_gelu_out[i])
+                out = flag_gems.gelu_backward(out, pre_gelu_out[i])
 
             # Compute bias gradients if requested
             if has_bias:
-                bias_grad = out.sum(dim=0)
+                bias_grad = flag_gems.sum_dim(out, dim=0)
                 if accumulate:
-                    bias[i].add_(bias_grad)
+                    flag_gems.add_(bias[i], bias_grad)
                 else:
-                    bias[i].copy_(bias_grad)
+                    flag_gems.copy_(bias[i], bias_grad)
 
         if not single_output:
             # Store output
             if accumulate:
-                D[i].add_(out.to(D[i].dtype))
+                flag_gems.add_(D[i], out.to(D[i].dtype))
             else:
-                D[i].copy_(out.to(D[i].dtype))
+                flag_gems.copy_(D[i], out.to(D[i].dtype))
         else:
             temp_D.append(out.to(D[0].dtype))
 
     if single_output:
         if temp_D:
-            temp = torch.cat(temp_D, dim=0)
-            D[0].copy_(temp)
+            temp = flag_gems.cat(temp_D, dim=0)
+            flag_gems.copy_(D[0], temp)
 
     return bias
