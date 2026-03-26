@@ -77,7 +77,6 @@ def _load_iluvatar_libs():
                     return True
         return False
     except Exception as e:
-        print(f"[ILUVATAR] Failed to load ILUVATAR libs: {e}")
         return False
 
 
@@ -88,6 +87,8 @@ def _ensure_iluvatar_libs():
     global _iluvatar_libs_loaded
     if not _iluvatar_libs_loaded:
         _iluvatar_libs_loaded = _load_iluvatar_libs()
+        if _iluvatar_libs_loaded:
+            print(f"[ILUVATAR] Successfully loaded ILUVATAR libs")
     return _iluvatar_libs_loaded
 
 
@@ -171,6 +172,13 @@ class IluvatarBackend(TEFLBackendBase):
         noop: Optional[torch.Tensor] = None,
     ) -> Any:
         tex = self._get_tex()
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
         return tex.quantize(tensor, quantizer, output, noop)
 
     def dequantize(
@@ -188,6 +196,16 @@ class IluvatarBackend(TEFLBackendBase):
         quantizer: Any,
     ) -> List[Any]:
         tex = self._get_tex()
+
+        # Normalize quantizer.dtype to this backend's `tex.DType`.
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
+
         return tex.bgrad_quantize(input, quantizer)
 
     def generic_gemm(

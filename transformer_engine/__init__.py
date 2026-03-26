@@ -21,9 +21,7 @@ try:
     from .plugin.core.backends.vendor.musa.patches import apply_patch as _musa_apply_patch
 
     _musa_apply_patch()
-    print("[TE-FL] MUSA patches applied")
 except Exception as e:
-    print(f"[TE-FL] MUSA patches not applied: {e}")
     pass
 
 

@@ -54,7 +54,6 @@ def _load_hygon_libs():
         spec.loader.exec_module(solib)
         return True
     except Exception as e:
-        print(f"[HYGON] Failed to load hygon libs: {e}")
         return False
 
 
@@ -65,6 +64,8 @@ def _ensure_hygon_libs():
     global _hygon_libs_loaded
     if not _hygon_libs_loaded:
         _hygon_libs_loaded = _load_hygon_libs()
+        if _hygon_libs_loaded:
+            print(f"[HYGON] Successfully loaded HYGON libs")
     return _hygon_libs_loaded
 
 
@@ -145,6 +146,13 @@ class HygonBackend(TEFLBackendBase):
         noop: Optional[torch.Tensor] = None,
     ) -> Any:
         tex = self._get_tex()
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
         return tex.quantize(tensor, quantizer, output, noop)
 
     def dequantize(
@@ -162,6 +170,16 @@ class HygonBackend(TEFLBackendBase):
         quantizer: Any,
     ) -> List[Any]:
         tex = self._get_tex()
+
+        # Normalize quantizer.dtype to this backend's `tex.DType`.
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
+
         return tex.bgrad_quantize(input, quantizer)
 
     def generic_gemm(

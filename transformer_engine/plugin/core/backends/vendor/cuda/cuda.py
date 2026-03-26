@@ -79,7 +79,6 @@ def _load_cuda_libs():
                     return True
         return False
     except Exception as e:
-        print(f"[CUDA] Failed to load CUDA libs: {e}")
         return False
 
 
@@ -90,6 +89,8 @@ def _ensure_cuda_libs():
     global _cuda_libs_loaded
     if not _cuda_libs_loaded:
         _cuda_libs_loaded = _load_cuda_libs()
+        if _cuda_libs_loaded:
+            print(f"[CUDA] Successfully loaded CUDA libs")
     return _cuda_libs_loaded
 
 
@@ -166,6 +167,15 @@ class CUDABackend(TEFLBackendBase):
         noop: Optional[torch.Tensor] = None,
     ) -> Any:
         tex = self._get_tex()
+        # Normalize quantizer.dtype to this backend's `tex.DType`.
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
+
         return tex.quantize(tensor, quantizer, output, noop)
 
     def dequantize(
@@ -183,6 +193,16 @@ class CUDABackend(TEFLBackendBase):
         quantizer: Any,
     ) -> List[Any]:
         tex = self._get_tex()
+
+        # Normalize quantizer.dtype to this backend's `tex.DType`.
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
+
         return tex.bgrad_quantize(input, quantizer)
 
     def generic_gemm(

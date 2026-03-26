@@ -66,7 +66,6 @@ def _load_musa_libs():
 
         return True
     except Exception as e:
-        print(f"[MUSA] Failed to load MUSA libs: {e}")
         return False
 
 
@@ -77,6 +76,8 @@ def _ensure_musa_libs():
     global _musa_libs_loaded
     if not _musa_libs_loaded:
         _musa_libs_loaded = _load_musa_libs()
+        if _musa_libs_loaded:
+            print(f"[MUSA] Successfully loaded MUSA libs")
     return _musa_libs_loaded
 
 
@@ -138,6 +139,13 @@ class MUSABackend(TEFLBackendBase):
         noop: Optional[torch.Tensor] = None,
     ) -> Any:
         tex = self._get_tex()
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
         return tex.quantize(tensor, quantizer, output, noop)
 
     def dequantize(
@@ -155,6 +163,16 @@ class MUSABackend(TEFLBackendBase):
         quantizer: Any,
     ) -> List[Any]:
         tex = self._get_tex()
+
+        # Normalize quantizer.dtype to this backend's `tex.DType`.
+        try:
+            if quantizer is not None and hasattr(quantizer, "dtype") and hasattr(tex, "DType"):
+                qdtype = quantizer.dtype
+                if qdtype is not None:
+                    quantizer.dtype = tex.DType(int(qdtype))
+        except Exception:
+            pass
+
         return tex.bgrad_quantize(input, quantizer)
 
     def generic_gemm(

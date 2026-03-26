@@ -70,3 +70,4 @@ def apply_patch() -> None:
         except Exception:
             # Best-effort: patching should never crash import/initialization.
             continue
+    print(f"[TE-FL] MUSA backend patches applied")
