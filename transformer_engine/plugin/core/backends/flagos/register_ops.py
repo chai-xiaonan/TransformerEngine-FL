@@ -67,6 +67,14 @@ def register_builtins(registry) -> None:
             priority=150,
         ),
         OpImpl(
+            op_name="te_general_grouped_gemm",
+            impl_id="default.flagos",
+            kind=BackendImplKind.DEFAULT,
+            fn=_bind_is_available(backend.te_general_grouped_gemm, is_avail),
+            vendor=None,
+            priority=150,
+        ),
+        OpImpl(
             op_name="multi_tensor_scale",
             impl_id="default.flagos",
             kind=BackendImplKind.DEFAULT,

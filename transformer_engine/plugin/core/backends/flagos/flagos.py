@@ -19,6 +19,7 @@ from .impl import (
     generic_gemm_fl,
     scaled_masked_softmax_forward_fl,
     scaled_masked_softmax_backward_fl,
+    te_general_grouped_gemm_fl,
 )
 
 
@@ -116,6 +117,46 @@ class FlagOSBackend(TEFLBackendBase):
             bulk_overlap,
             alpha,
             beta,
+        )
+
+    def te_general_grouped_gemm(
+        self,
+        A: List[Any],
+        transa: bool,
+        B: List[Any],
+        transb: bool,
+        D: Optional[List[torch.Tensor]],
+        D_type: DType,
+        m_splits: List[int],
+        bias: List[torch.Tensor],
+        bias_type: DType,
+        single_output: bool,
+        pre_gelu_out: List[torch.Tensor],
+        grad: bool,
+        workspace: List[torch.Tensor],
+        workspaceSizes: int,
+        accumulate: bool,
+        use_split_accumulator: bool,
+        math_sm_count: int,
+    ) -> Optional[List[torch.Tensor]]:
+        return te_general_grouped_gemm_fl(
+            A,
+            transa,
+            B,
+            transb,
+            D,
+            D_type,
+            m_splits,
+            bias,
+            bias_type,
+            single_output,
+            pre_gelu_out,
+            grad,
+            workspace,
+            workspaceSizes,
+            accumulate,
+            use_split_accumulator,
+            math_sm_count,
         )
 
     # Other granular functions
