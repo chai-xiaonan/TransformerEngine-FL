@@ -199,7 +199,7 @@ def te_general_grouped_gemm_fl(
 
             # Compute bias gradients if requested
             if has_bias:
-                bias_grad = flag_gems.sum_dim(out, dim=0)
+                bias_grad = flag_gems.sum_dim(out, dim=[0])
                 if accumulate:
                     flag_gems.add_(bias[i], bias_grad)
                 else:
