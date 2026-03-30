@@ -136,10 +136,10 @@ class grouped_gemmTests(TestCase):
                 print(f"    ✓ {backend_name}")
             except NotImplementedError:
                 self.skipped += 1
-                print(f"    �~J~X {backend_name} (not implemented)")
+                print(f"    ⊘  {backend_name} (not implemented)")
             except Exception as e:
                 self.failed += 1
-                print(f"  �~\~W Test failed: {e}")
+                print(f"    ✗ Test failed: {e}")
 
     def run_all_tests(self):
         print("\n" + "=" * 60)
